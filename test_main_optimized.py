@@ -946,11 +946,33 @@ class OptimizedPerformanceComparator:
         """保存测试结果"""
         filename = f"optimized_comparison_{self.n_task_vehicles}vehicles.pkl"
         
+        # 生成统计量，便于后续绘图显示极值/方差等
+        stats = {}
+        for method, records in self.results.items():
+            if not records:
+                continue
+            if method in ['shannon', 'shannon_ivy', 'shannon_no_lp']:
+                all_delays = np.array([r['total_delay_shannon'] for r in records]) * 1000
+                delays = all_delays[all_delays <= 3000]
+                if len(delays) == 0:
+                    delays = all_delays
+            else:
+                delays = np.array([r['total_delay_semantic'] for r in records]) * 1000
+            
+            stats[method] = {
+                'count': int(len(delays)),
+                'mean': float(delays.mean()),
+                'std': float(delays.std()),
+                'min': float(delays.min()),
+                'max': float(delays.max())
+            }
+        
         save_data = {
             'results': self.results,
             'n_task_vehicles': self.n_task_vehicles,
             'n_service_vehicles': self.n_service_vehicles,
-            'test_type': 'optimized_single_simulation'
+            'test_type': 'optimized_single_simulation',
+            'stats': stats
         }
         
         with open(filename, 'wb') as f:
@@ -1189,6 +1211,17 @@ class OptimizedPerformanceComparator:
         plt.rcParams['font.family'] = 'serif'
         plt.rcParams['axes.unicode_minus'] = False
         
+        def _filter_outliers_iqr(arr, whisker=1.5):
+            """IQR过滤：统计意义的异常值剔除，若全剔除则回退原数组"""
+            if len(arr) == 0:
+                return arr
+            q1, q3 = np.percentile(arr, [25, 75])
+            iqr = q3 - q1
+            lower = q1 - whisker * iqr
+            upper = q3 + whisker * iqr
+            filtered = arr[(arr >= lower) & (arr <= upper)]
+            return filtered if len(filtered) > 0 else arr
+        
         fig, ax1 = plt.subplots(1, 1, figsize=(10, 7))
         
         # 提取数据
@@ -1231,24 +1264,36 @@ class OptimizedPerformanceComparator:
         x_base = np.arange(n_vehicles)
         
         # 为不同方法定义不同图案，便于灰白色打印区分
-        hatches = ['///', '\\\\\\', '...', 'xxx', '---', '|||', '+++', 'ooo', '***']
+        # 选用更简洁的图案，去掉实心星形，改用中空圆点样式
+        hatches = ['///', '\\\\\\', '...', 'xxx', '--', '+']
         
         # 为每种方法收集数据并绘制柱状图
         for i, (method, display_name) in enumerate(method_names.items()):
             avg_delays = []
+            min_delays = []
+            max_delays = []
+            std_delays = []
             for n_vehicles in vehicle_counts:
                 if method in all_results[n_vehicles] and all_results[n_vehicles][method]:
                     if method in ['shannon', 'shannon_no_lp', 'shannon_ivy']:
                         # 添加异常值保护：过滤大于3000ms的香农传输时间
-                        all_delays = [r['total_delay_shannon'] for r in all_results[n_vehicles][method]]
-                        delays = [d for d in all_delays if d * 1000 <= 3000]
+                        all_delays = [r['total_delay_shannon'] * 1000 for r in all_results[n_vehicles][method]]
+                        delays = [d for d in all_delays if d <= 3000]
                         if len(delays) == 0:  # 如果全部异常，使用原始数据
                             delays = all_delays
                     else:
-                        delays = [r['total_delay_semantic'] for r in all_results[n_vehicles][method]]
-                    avg_delays.append(np.mean(delays) * 1000)
+                        delays = [r['total_delay_semantic'] * 1000 for r in all_results[n_vehicles][method]]
+                    # 在已有3000ms过滤基础上，再做IQR过滤以得到统计意义上的分布
+                    delays_filtered = _filter_outliers_iqr(np.array(delays))
+                    avg_delays.append(np.mean(delays_filtered))
+                    std_delays.append(np.std(delays_filtered))
+                    min_delays.append(np.min(delays_filtered))
+                    max_delays.append(np.max(delays_filtered))
                 else:
                     avg_delays.append(0)
+                    std_delays.append(0)
+                    min_delays.append(np.nan)
+                    max_delays.append(np.nan)
             
             # 计算柱子位置
             x_pos = x_base + (i - (n_methods-1)/2) * bar_width
@@ -1259,7 +1304,8 @@ class OptimizedPerformanceComparator:
             # 绘制柱状图，添加图案，去除数字标识
             bars = ax1.bar(x_pos, avg_delays, bar_width, 
                           color=colors[method], alpha=0.8, label=display_name,
-                          hatch=hatch_pattern, edgecolor='black', linewidth=1.0)
+                          hatch=hatch_pattern, edgecolor='black', linewidth=1.0,
+                          yerr=std_delays, capsize=4, ecolor='black', error_kw={'elinewidth':1.2})
         
         ax1.set_xlabel('Number of Vehicle Users', fontsize=18, fontweight='bold')
         ax1.set_ylabel('Average Task Delay (ms)', fontsize=18, fontweight='bold')

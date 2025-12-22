@@ -1,12 +1,3 @@
-"""
-K值选择的多智能体DQN (MADQN) 训练框架
-
-目标: 在SNR ∈ [-10, 20] dB范围内，为所有链路自适应选择k值，最大化语义传输速率
-策略: 参数共享的DQN，每个链路（V2V/V2I，来自任何任务车辆）作为一个智能体，共享同一Q网络
-状态: SNR, 归一化距离, 归一化任务大小, 链路类型, 语义表对应SNR的20维切片
-动作: k ∈ {1,2,...,20}
-奖励: 归一化语义传输速率（线性）
-"""
 
 import os
 # 解决OpenMP库冲突问题
@@ -394,22 +385,23 @@ class KValueMADQN:
             
             return torch.tensor(action_idx, device=self.device), None
         else:
-           with torch.no_grad():
+            with torch.no_grad():
                 q_values = self.q_network.get_q_values(obs.unsqueeze(0), action_mask.unsqueeze(0))
                 
                 # 应用mask
                 masked_q_values = q_values.clone()
                 mask_bool = action_mask.unsqueeze(0).bool()
                 masked_q_values[~mask_bool] = float('-inf')
-                
+                n = torch.normal(0.0, 0.3, size=masked_q_values.shape, device=masked_q_values.device)* mask_bool.float()
+                masked_q_values = masked_q_values + n
                 
                 # 重新应用mask确保无效动作仍然被屏蔽
                 masked_q_values[~mask_bool] = float('-inf')
                 
-                # 添加噪声后选择最大Q值对应的动作
+                # 选择最大Q值对应的动作
                 action_idx = masked_q_values.argmax(dim=1).squeeze()
                 
-            return action_idx, q_values.squeeze()
+            return action_idx + 1, q_values.squeeze()
     
     def compute_reward(self, snr_dB: float, k_value: int, task_size: float, 
                       link_type: int, env_instance) -> Tuple[float, bool, float]:
@@ -1068,5 +1060,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-

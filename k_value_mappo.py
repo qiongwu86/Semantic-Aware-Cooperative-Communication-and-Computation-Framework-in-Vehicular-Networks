@@ -1,12 +1,4 @@
-"""
-K值选择的多智能体PPO (MAPPO) 训练框架
 
-目标: 在SNR ∈ [-10, 20] dB范围内，为所有链路自适应选择k值，最大化语义传输速率
-策略: 参数共享的MAPPO，每个链路（V2V/V2I，来自任何任务车辆）作为一个智能体，共享同一策略网络
-状态: SNR, 归一化距离, 归一化任务大小, 链路类型, 语义表对应SNR的20维切片
-动作: k ∈ {1,2,...,20}
-奖励: 归一化语义传输速率（线性）
-"""
 
 import torch
 import torch.nn as nn
@@ -356,6 +348,8 @@ class KValueMAPPO:
             masked_logits = logits.clone()
             mask_bool = action_mask_batch.bool()
             masked_logits[~mask_bool] = float('-inf')         
+            n = torch.normal(0.0, 0.3, size=masked_logits.shape, device=masked_logits.device)* mask_bool.float()
+            masked_logits = masked_logits + n
             
             # 重新应用mask确保无效动作仍然被屏蔽
             masked_logits[~mask_bool] = float('-inf')
