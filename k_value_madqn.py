@@ -394,23 +394,22 @@ class KValueMADQN:
             
             return torch.tensor(action_idx, device=self.device), None
         else:
-            with torch.no_grad():
+           with torch.no_grad():
                 q_values = self.q_network.get_q_values(obs.unsqueeze(0), action_mask.unsqueeze(0))
                 
                 # 应用mask
                 masked_q_values = q_values.clone()
                 mask_bool = action_mask.unsqueeze(0).bool()
                 masked_q_values[~mask_bool] = float('-inf')
-    
+                
+                
                 # 重新应用mask确保无效动作仍然被屏蔽
                 masked_q_values[~mask_bool] = float('-inf')
-                probs = torch.softmax(masked_q_values, dim=-1)
-        
-                # 使用多项分布采样一个动作（batch_size=1）
-                action_idx = torch.multinomial(probs, num_samples=1).item()
-                #action_idx = masked_q_values.argmax(dim=1).squeeze()
                 
-            return action_idx+1, q_values.squeeze()
+                # 添加噪声后选择最大Q值对应的动作
+                action_idx = masked_q_values.argmax(dim=1).squeeze()
+                
+            return action_idx, q_values.squeeze()
     
     def compute_reward(self, snr_dB: float, k_value: int, task_size: float, 
                       link_type: int, env_instance) -> Tuple[float, bool, float]:
@@ -1069,4 +1068,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
