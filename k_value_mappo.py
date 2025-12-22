@@ -356,17 +356,17 @@ class KValueMAPPO:
             masked_logits = logits.clone()
             mask_bool = action_mask_batch.bool()
             masked_logits[~mask_bool] = float('-inf')         
-            noise_std = 0.3  
-            noise = torch.normal(0.0, noise_std, size=masked_logits.shape, device=masked_logits.device)
-            noise = noise * mask_bool.float()
-            masked_logits = masked_logits + noise
             
             # 重新应用mask确保无效动作仍然被屏蔽
             masked_logits[~mask_bool] = float('-inf')
             
-            # 选择概率最大的动作
-            best_action = torch.argmax(masked_logits, dim=-1)
-            return best_action.item() + 1  # 转换回k值范围[1,20]
+            probs = torch.softmax(masked_logits, dim=-1)
+        
+            # 使用多项分布采样一个动作（batch_size=1）
+            action_index = torch.multinomial(probs, num_samples=1).item()
+        
+            # 转换回 [1, 20] 范围
+            return action_index + 1
     
     def compute_gae(self, rewards: torch.Tensor, values: torch.Tensor, dones: torch.Tensor,
                    train_masks: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
